@@ -5,12 +5,19 @@ from bs4 import BeautifulSoup
 import openai
 import os
 import json
+import re
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": ["https://hempesv2.staging.tempurl.host"]}})
 
 # Load API Key for OpenAI
 openai.api_key = os.getenv("OPENAI_API_KEY")
+
+
+def clean_text(text):
+    """Cleans extracted text by removing unwanted characters and 'Loading...' artifacts."""
+    text = re.sub(r"Loading\.\.\.", "", text)  # Remove 'Loading...' placeholders
+    return text.strip()
 
 
 def fetch_html(url):
@@ -33,15 +40,15 @@ def scrape_leafly(url):
 
     try:
         return {
-            "name": soup.find(class_="text-secondary").text.strip() if soup.find(class_="text-secondary") else "Unknown",
-            "description": soup.find(attrs={"data-testid": "strain-description-container"}).text.strip() if soup.find(attrs={"data-testid": "strain-description-container"}) else "No description available",
-            "thc_content": soup.find(attrs={"data-testid": "THC"}).text.strip().replace("%", "") if soup.find(attrs={"data-testid": "THC"}) else None,
-            "cbd_content": soup.find(attrs={"data-testid": "CBD"}).text.strip().replace("%", "") if soup.find(attrs={"data-testid": "CBD"}) else "1%",
-            "aromas": [tag.text.strip() for tag in soup.select("#strain-aromas-section a")] or [],
-            "flavors": [tag.text.strip() for tag in soup.select("#strain-flavors-section a")] or [],
-            "terpenes": [tag.text.strip() for tag in soup.select("#strain-terpenes-section a")] or [],
-            "effects": [tag.text.strip() for tag in soup.select("#strain-sensations-section a")] or [],
-            "reviews": soup.find(id="strain-reviews-section").text.strip() if soup.find(id="strain-reviews-section") else ""
+            "name": clean_text(soup.find(class_="text-secondary").text) if soup.find(class_="text-secondary") else "Unknown",
+            "description": clean_text(soup.find(attrs={"data-testid": "strain-description-container"}).text) if soup.find(attrs={"data-testid": "strain-description-container"}) else "No description available",
+            "thc_content": clean_text(soup.find(attrs={"data-testid": "THC"}).text.replace("%", "")) if soup.find(attrs={"data-testid": "THC"}) else None,
+            "cbd_content": clean_text(soup.find(attrs={"data-testid": "CBD"}).text.replace("%", "")) if soup.find(attrs={"data-testid": "CBD"}) else "1%",
+            "aromas": list(set([clean_text(tag.text) for tag in soup.select("#strain-aromas-section a")])),
+            "flavors": list(set([clean_text(tag.text) for tag in soup.select("#strain-flavors-section a")])),
+            "terpenes": list(set([clean_text(tag.text) for tag in soup.select("#strain-terpenes-section a")])),
+            "effects": list(set([clean_text(tag.text) for tag in soup.select("#strain-sensations-section a")])),
+            "reviews": clean_text(soup.find(id="strain-reviews-section").text) if soup.find(id="strain-reviews-section") else ""
         }
     except Exception as e:
         print(f"Leafly scraping error: {e}")
@@ -56,13 +63,13 @@ def scrape_allbud(url):
 
     try:
         return {
-            "name": soup.find("h1").text.strip() if soup.find("h1") else "Unknown",
-            "description": soup.find(class_="panel-body well description").text.strip() if soup.find(class_="panel-body well description") else "No description available",
-            "thc_content": soup.find(class_="percentage").text.strip().replace("%", "") if soup.find(class_="percentage") else None,
-            "aromas": [tag.text.strip() for tag in soup.select("#aromas a")] or [],
-            "flavors": [tag.text.strip() for tag in soup.select("#flavors a")] or [],
-            "effects": [tag.text.strip() for tag in soup.select("#positive-effects a")] or [],
-            "reviews": soup.find(id="collapse_reviews").text.strip() if soup.find(id="collapse_reviews") else ""
+            "name": clean_text(soup.find("h1").text) if soup.find("h1") else "Unknown",
+            "description": clean_text(soup.find(class_="panel-body well description").text) if soup.find(class_="panel-body well description") else "No description available",
+            "thc_content": clean_text(soup.find(class_="percentage").text.replace("%", "")) if soup.find(class_="percentage") else None,
+            "aromas": list(set([clean_text(tag.text) for tag in soup.select("#aromas a")])),
+            "flavors": list(set([clean_text(tag.text) for tag in soup.select("#flavors a")])),
+            "effects": list(set([clean_text(tag.text) for tag in soup.select("#positive-effects a")])),
+            "reviews": clean_text(soup.find(id="collapse_reviews").text) if soup.find(id="collapse_reviews") else ""
         }
     except Exception as e:
         print(f"AllBud scraping error: {e}")
