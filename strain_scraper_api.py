@@ -1,7 +1,5 @@
-from flask_cors import CORS
-app = Flask(__name__)
-CORS(app)  # Allows all domains (for testing)
 from flask import Flask, request, jsonify
+from flask_cors import CORS
 import requests
 from bs4 import BeautifulSoup
 
