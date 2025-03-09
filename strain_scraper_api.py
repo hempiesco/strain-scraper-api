@@ -89,30 +89,34 @@ def scrape_allbud(url):
         return None
 
 def generate_ai_description(leafly_desc, allbud_desc, reviews):
-    """Uses OpenAI to generate a refined description, avoiding medical claims and effects that are not approved by the fda."""
+    """Uses OpenAI's latest API to generate a refined strain description."""
+    
+    openai.api_key = os.getenv("OPENAI_API_KEY")  # Ensure API key is set
+
     prompt = f"""
     Combine the following strain descriptions and reviews into a single, refined description that is engaging and informative. 
     Avoid any medical claims or health benefits.
 
-    Leafly Description:
+    **Leafly Description:**
     {leafly_desc}
 
-    AllBud Description:
+    **AllBud Description:**
     {allbud_desc}
 
-    User Reviews:
+    **User Reviews:**
     {reviews}
 
-    The final description should summarize key details while making it more engaging.
+    The final description should summarize key details while making it more engaging, without including medical claims.
     """
 
-    response = openai.ChatCompletion.create(
+    response = openai.chat.completions.create(
         model="gpt-4",
         messages=[{"role": "system", "content": "You are an expert cannabis content writer."},
-                  {"role": "user", "content": prompt}]
+                  {"role": "user", "content": prompt}],
+        max_tokens=300
     )
 
-    return response['choices'][0]['message']['content'].strip()
+    return response.choices[0].message.content.strip()
 
 @app.route('/fetch_strain', methods=['GET'])
 def fetch_strain():
