@@ -2,6 +2,7 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 import openai
 import os
+import json
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": ["https://hempesv2.staging.tempurl.host"]}})
@@ -9,57 +10,63 @@ CORS(app, resources={r"/*": {"origins": ["https://hempesv2.staging.tempurl.host"
 # Load OpenAI API Key
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
-def get_strain_data_from_ai(strain_name):
-    """Uses OpenAI GPT-4o to search for strain data and return structured JSON."""
+def ask_openai(prompt):
+    """Helper function to query OpenAI GPT-4o and return text response."""
     try:
-        prompt = f"""
-        Search for details about the cannabis strain "{strain_name}" on Leafly, AllBud, and other reliable sources.
-        If the strain is not found, use your internal knowledge to generate the most accurate data.
-
-        Return the response **strictly** in JSON format with the following structure:
-        {{
-            "name": "Apple Fritter",
-            "alternative_name": "",  # Leave blank if none found
-            "thc_content": 24.0,  # Number only, no text
-            "cbd_content": 1.0,  # Number only, no text
-            "aromas": ["Sweet", "Earthy", "Apple"],  # Array of words
-            "flavors": ["Apple", "Vanilla", "Pastry"],  # Array of words
-            "terpenes": ["Caryophyllene", "Limonene", "Pinene"],  # Array of words
-            "effects": ["Relaxing", "Euphoric", "Uplifting"],  # Array of words
-            "description": "A well-balanced hybrid...",
-            "user_reported_reviews": "Users describe the experience as..."
-        }}
-
-        Important:
-        - Do NOT include any medical claims or FDA-sensitive language.
-        - Keep all numeric values as pure numbers (e.g., 24.0, 1.0).
-        - Ensure JSON is **valid and properly structured**.
-        """
-
         response = openai.chat.completions.create(
             model="gpt-4o",
-            messages=[{"role": "system", "content": "You are a cannabis strain expert and data researcher."},
+            messages=[{"role": "system", "content": "You are an expert cannabis strain researcher."},
                       {"role": "user", "content": prompt}]
         )
-
-        # Convert AI response to JSON
-        strain_data = response.choices[0].message.content.strip()
-
-        # Ensure response is valid JSON
-        import json
-        try:
-            strain_json = json.loads(strain_data)
-            return strain_json  # Return as JSON object
-        except json.JSONDecodeError:
-            print("AI returned malformed JSON.")
-            return {"error": "AI returned malformed data."}
-
+        return response.choices[0].message.content.strip()
     except openai.OpenAIError as e:
         print(f"OpenAI API Error: {e}")
-        return {"error": "AI processing failed due to API error."}
+        return None
     except Exception as e:
-        print(f"Error processing AI response: {e}")
-        return {"error": "Unexpected processing error."}
+        print(f"Error querying OpenAI: {e}")
+        return None
+
+def get_strain_data_from_ai(strain_name):
+    """Fetches structured strain data from OpenAI using multiple queries for JSON formatting accuracy."""
+
+    # **1️⃣ Get Name & Alternative Name**
+    name_prompt = f"Find strain '{strain_name}' on Leafly or AllBud. If it exists, return only:\n\nName: [Strain Name]\nAlternative Name: [Other names or blank]"
+    name_response = ask_openai(name_prompt)
+    name, alternative_name = name_response.split("\n") if name_response else (strain_name, "")
+
+    # **2️⃣ Get THC & CBD Content**
+    thc_cbd_prompt = f"Find strain '{strain_name}' and return just THC and CBD percentages:\nTHC: [number]\nCBD: [number]"
+    thc_cbd_response = ask_openai(thc_cbd_prompt)
+    thc_content, cbd_content = [float(val.split(":")[1].strip()) if ":" in val else 0.0 for val in thc_cbd_response.split("\n")] if thc_cbd_response else (0.0, 0.0)
+
+    # **3️⃣ Get Aromas, Flavors, Terpenes, Effects**
+    attributes_prompt = f"List the characteristics of strain '{strain_name}' as separate comma-separated values:\nAromas: [List]\nFlavors: [List]\nTerpenes: [List]\nEffects: [List]"
+    attributes_response = ask_openai(attributes_prompt)
+    attributes = {line.split(":")[0].strip().lower(): line.split(":")[1].strip().split(", ") if ":" in line else [] for line in attributes_response.split("\n")} if attributes_response else {}
+
+    # **4️⃣ Get Description**
+    description_prompt = f"Write a **concise**, engaging, and **non-medical** description for '{strain_name}'. No medical claims."
+    description = ask_openai(description_prompt) or "No description available."
+
+    # **5️⃣ Get User-Reported Reviews Summary**
+    reviews_prompt = f"Summarize **only user reviews** for '{strain_name}' in one paragraph without medical claims."
+    user_reviews = ask_openai(reviews_prompt) or "No user reviews available."
+
+    # **6️⃣ Build JSON Response**
+    strain_data = {
+        "name": name,
+        "alternative_name": alternative_name if alternative_name else "",
+        "thc_content": thc_content,
+        "cbd_content": cbd_content,
+        "aromas": attributes.get("aromas", []),
+        "flavors": attributes.get("flavors", []),
+        "terpenes": attributes.get("terpenes", []),
+        "effects": attributes.get("effects", []),
+        "description": description,
+        "user_reported_reviews": user_reviews
+    }
+
+    return strain_data
 
 @app.route('/fetch_strain', methods=['GET'])
 def fetch_strain():
