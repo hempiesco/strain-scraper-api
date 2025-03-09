@@ -15,4 +15,4 @@ COPY . .
 EXPOSE 5000
 
 # Use Gunicorn for production
-CMD ["gunicorn", "-w", "4", "-b", "0.0.0.0:5000", "strain_scraper_api:app"]
+CMD ["gunicorn", "-w", "4", "-b", "0.0.0.0:$PORT", "strain_scraper_api:app"]
