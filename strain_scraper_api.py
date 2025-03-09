@@ -4,6 +4,7 @@ import requests
 from bs4 import BeautifulSoup
 import openai
 import os
+import json
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": ["https://hempesv2.staging.tempurl.host"]}})
@@ -98,13 +99,15 @@ def process_with_ai(leafly_data, allbud_data):
     - Effects: {allbud_data.get("effects_raw", "")}
     - Reviews: {allbud_data.get("reviews_raw", "")}
 
-    Please return the response in JSON format like this:
+    Please return the response in **plain JSON format**, with no markdown or code blocks.
+
+    Example Response:
     {{
-        "aromas": ["...", "..."],
-        "flavors": ["...", "..."],
-        "terpenes": ["...", "..."],
-        "effects": ["...", "..."],
-        "user_reported_reviews": "..."
+        "aromas": ["Apple", "Sweet", "Earthy"],
+        "flavors": ["Vanilla", "Fruity"],
+        "terpenes": ["Caryophyllene", "Limonene"],
+        "effects": ["Relaxing", "Happy"],
+        "user_reported_reviews": "Users describe Apple Fritter as a relaxing strain with a sweet apple pastry flavor."
     }}
     """
 
@@ -114,7 +117,17 @@ def process_with_ai(leafly_data, allbud_data):
                   {"role": "user", "content": prompt}]
     )
 
-    return response.choices[0].message.content.strip()
+    try:
+        # Remove markdown artifacts & parse response safely
+        clean_response = response.choices[0].message.content.strip()
+        if clean_response.startswith("```json"):
+            clean_response = clean_response.replace("```json", "").replace("```", "").strip()
+
+        return json.loads(clean_response)  # Convert to dictionary
+    except json.JSONDecodeError as e:
+        print(f"Error parsing AI response: {e}")
+        return {"aromas": [], "flavors": [], "terpenes": [], "effects": [], "user_reported_reviews": "No review data available."}
+
 
 @app.route('/fetch_strain', methods=['GET'])
 def fetch_strain():
