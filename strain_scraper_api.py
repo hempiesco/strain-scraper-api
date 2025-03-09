@@ -29,68 +29,44 @@ def scrape_leafly(url):
     """Scrapes Leafly strain data."""
     soup = fetch_html(url)
     if not soup:
-        return None
+        return {}
 
     try:
-        name = soup.find(class_="text-secondary").text.strip() if soup.find(class_="text-secondary") else "Unknown"
-        description = soup.find(attrs={"data-testid": "strain-description-container"}).text.strip() if soup.find(attrs={"data-testid": "strain-description-container"}) else "No description available"
-        thc_content = soup.find(attrs={"data-testid": "THC"}).text.strip().replace("%", "") if soup.find(attrs={"data-testid": "THC"}) else None
-        cbd_content = soup.find(attrs={"data-testid": "CBD"}).text.strip().replace("%", "") if soup.find(attrs={"data-testid": "CBD"}) else None
-        
-        # Extract Aromas, Flavors, Terpenes
-        aromas = [tag.text.strip() for tag in soup.select("#strain-aromas-section a")]
-        flavors = [tag.text.strip() for tag in soup.select("#strain-flavors-section a")]
-        terpenes = [tag.text.strip() for tag in soup.select("#strain-terpenes-section a")]
-        
-        # Extract Reviews
-        reviews = soup.find(id="strain-reviews-section").text.strip() if soup.find(id="strain-reviews-section") else ""
-
         return {
-            "name": name,
-            "description": description,
-            "thc_content": thc_content,
-            "cbd_content": cbd_content,
-            "aromas": aromas,
-            "flavors": flavors,
-            "terpenes": terpenes,
-            "reviews": reviews
+            "name": soup.find(class_="text-secondary").text.strip() if soup.find(class_="text-secondary") else "Unknown",
+            "description": soup.find(attrs={"data-testid": "strain-description-container"}).text.strip() if soup.find(attrs={"data-testid": "strain-description-container"}) else "No description available",
+            "thc_content": soup.find(attrs={"data-testid": "THC"}).text.strip().replace("%", "") if soup.find(attrs={"data-testid": "THC"}) else None,
+            "cbd_content": soup.find(attrs={"data-testid": "CBD"}).text.strip().replace("%", "") if soup.find(attrs={"data-testid": "CBD"}) else "1%",
+            "aromas": [tag.text.strip() for tag in soup.select("#strain-aromas-section a")] or [],
+            "flavors": [tag.text.strip() for tag in soup.select("#strain-flavors-section a")] or [],
+            "terpenes": [tag.text.strip() for tag in soup.select("#strain-terpenes-section a")] or [],
+            "effects": [tag.text.strip() for tag in soup.select("#strain-sensations-section a")] or [],
+            "reviews": soup.find(id="strain-reviews-section").text.strip() if soup.find(id="strain-reviews-section") else ""
         }
     except Exception as e:
         print(f"Leafly scraping error: {e}")
-        return None
+        return {}
 
 
 def scrape_allbud(url):
     """Scrapes AllBud strain data."""
     soup = fetch_html(url)
     if not soup:
-        return None
+        return {}
 
     try:
-        name = soup.find("h1").text.strip() if soup.find("h1") else "Unknown"
-        description = soup.find(class_="panel-body well description").text.strip() if soup.find(class_="panel-body well description") else "No description available"
-        thc_content = soup.find(class_="percentage").text.strip().replace("%", "") if soup.find(class_="percentage") else None
-        
-        # Extract Aromas, Flavors, Effects
-        aromas = [tag.text.strip() for tag in soup.select("#aromas a")]
-        flavors = [tag.text.strip() for tag in soup.select("#flavors a")]
-        effects = [tag.text.strip() for tag in soup.select("#positive-effects a")]
-        
-        # Extract Reviews
-        reviews = soup.find(id="collapse_reviews").text.strip() if soup.find(id="collapse_reviews") else ""
-
         return {
-            "name": name,
-            "description": description,
-            "thc_content": thc_content,
-            "aromas": aromas,
-            "flavors": flavors,
-            "effects": effects,
-            "reviews": reviews
+            "name": soup.find("h1").text.strip() if soup.find("h1") else "Unknown",
+            "description": soup.find(class_="panel-body well description").text.strip() if soup.find(class_="panel-body well description") else "No description available",
+            "thc_content": soup.find(class_="percentage").text.strip().replace("%", "") if soup.find(class_="percentage") else None,
+            "aromas": [tag.text.strip() for tag in soup.select("#aromas a")] or [],
+            "flavors": [tag.text.strip() for tag in soup.select("#flavors a")] or [],
+            "effects": [tag.text.strip() for tag in soup.select("#positive-effects a")] or [],
+            "reviews": soup.find(id="collapse_reviews").text.strip() if soup.find(id="collapse_reviews") else ""
         }
     except Exception as e:
         print(f"AllBud scraping error: {e}")
-        return None
+        return {}
 
 
 def process_with_ai(leafly_data, allbud_data):
@@ -102,7 +78,7 @@ def process_with_ai(leafly_data, allbud_data):
         - A clean and formatted description (avoiding medical claims).
         - Categorized attributes for aromas, flavors, and terpenes.
         - A user-reported review summary.
-        
+
         Leafly Data:
         {json.dumps(leafly_data, indent=2)}
 
@@ -156,13 +132,13 @@ def fetch_strain():
     # Merge Data
     final_data = {
         "name": strain_name,
-        "strain_subname": leafly_data["name"] if leafly_data else allbud_data["name"] if allbud_data else strain_name,
-        "thc_content": leafly_data["thc_content"] if leafly_data else allbud_data["thc_content"] if allbud_data else None,
-        "cbd_content": leafly_data["cbd_content"] if leafly_data else "1%",
-        "aromas": list(set((leafly_data["aromas"] if leafly_data else []) + (allbud_data["aromas"] if allbud_data else []))),
-        "flavors": list(set((leafly_data["flavors"] if leafly_data else []) + (allbud_data["flavors"] if allbud_data else []))),
-        "effects": list(set((leafly_data["effects"] if leafly_data else []) + (allbud_data["effects"] if allbud_data else []))),
-        "terpenes": list(set((leafly_data["terpenes"] if leafly_data else [])))
+        "strain_subname": leafly_data.get("name", allbud_data.get("name", strain_name)),
+        "thc_content": leafly_data.get("thc_content", allbud_data.get("thc_content", None)),
+        "cbd_content": leafly_data.get("cbd_content", "1%"),
+        "aromas": list(set(leafly_data.get("aromas", []) + allbud_data.get("aromas", []))),
+        "flavors": list(set(leafly_data.get("flavors", []) + allbud_data.get("flavors", []))),
+        "effects": list(set(leafly_data.get("effects", []) + allbud_data.get("effects", []))),
+        "terpenes": list(set(leafly_data.get("terpenes", [])))
     }
 
     # AI Processing
