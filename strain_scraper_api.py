@@ -3,14 +3,13 @@ from flask_cors import CORS
 import requests
 from bs4 import BeautifulSoup
 import openai
+import os
+import re
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": ["https://hempesv2.staging.tempurl.host"]}})
 
-import os
-import openai
-
-# Load API key from environment variable
+# Load API key from environment variables
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
 def fetch_html(url):
@@ -24,6 +23,13 @@ def fetch_html(url):
         print(f"Error fetching {url}: {e}")
     return None
 
+def clean_text(text):
+    """Removes unwanted words and symbols from extracted data."""
+    if not text:
+        return None
+    text = re.sub(r'\bLoading\b|\bwrite a review\b|\bhelpfulreport\b|\bread full review\b|\bRead all reviews\b', '', text)
+    return text.strip()
+
 def scrape_leafly(url):
     """Scrapes Leafly strain data using known IDs and attributes."""
     soup = fetch_html(url)
@@ -32,15 +38,15 @@ def scrape_leafly(url):
 
     try:
         name = soup.find(class_="text-secondary").text.strip() if soup.find(class_="text-secondary") else "Unknown"
-        description = soup.find(attrs={"data-testid": "strain-description-container"}).text.strip() if soup.find(attrs={"data-testid": "strain-description-container"}) else "No description available"
+        description = clean_text(soup.find(attrs={"data-testid": "strain-description-container"}).text.strip()) if soup.find(attrs={"data-testid": "strain-description-container"}) else "No description available"
         thc_content = soup.find(attrs={"data-testid": "THC"}).text.strip().replace("%", "") if soup.find(attrs={"data-testid": "THC"}) else None
         cbd_content = soup.find(attrs={"data-testid": "CBD"}).text.strip().replace("%", "") if soup.find(attrs={"data-testid": "CBD"}) else None
-        aromas = [tag.text.strip() for tag in soup.select("#strain-aromas-section li")]
-        flavors = [tag.text.strip() for tag in soup.select("#strain-flavors-section li")]
-        effects = [tag.text.strip() for tag in soup.select("#strain-sensations-section li")]
-        terpenes = [tag.text.strip() for tag in soup.select("#strain-terpenes-section li")]
-        benefits = [tag.text.strip() for tag in soup.select("#helps-with-section li")]
-        reviews = soup.find(id="strain-reviews-section").text.strip() if soup.find(id="strain-reviews-section") else ""
+        aromas = list(set([tag.text.strip() for tag in soup.select("#strain-aromas-section li")]))
+        flavors = list(set([tag.text.strip() for tag in soup.select("#strain-flavors-section li")]))
+        effects = list(set([tag.text.strip() for tag in soup.select("#strain-sensations-section li")]))
+        terpenes = list(set([tag.text.strip() for tag in soup.select("#strain-terpenes-section li")]))
+        benefits = list(set([tag.text.strip() for tag in soup.select("#helps-with-section li")]))
+        reviews = clean_text(soup.find(id="strain-reviews-section").text.strip()) if soup.find(id="strain-reviews-section") else ""
 
         return {
             "name": name,
@@ -66,13 +72,13 @@ def scrape_allbud(url):
 
     try:
         name = soup.find("h1").text.strip() if soup.find("h1") else "Unknown"
-        description = soup.find(class_="panel-body well description").text.strip() if soup.find(class_="panel-body well description") else "No description available"
+        description = clean_text(soup.find(class_="panel-body well description").text.strip()) if soup.find(class_="panel-body well description") else "No description available"
         thc_content = soup.find(class_="percentage").text.strip().replace("%", "") if soup.find(class_="percentage") else None
-        aromas = [tag.text.strip() for tag in soup.select("#aromas li")]
-        flavors = [tag.text.strip() for tag in soup.select("#flavors li")]
-        effects = [tag.text.strip() for tag in soup.select("#positive-effects li")]
-        benefits = [tag.text.strip() for tag in soup.select("#helps-with-section li")]
-        reviews = soup.find(id="collapse_reviews").text.strip() if soup.find(id="collapse_reviews") else ""
+        aromas = list(set([tag.text.strip() for tag in soup.select("#aromas li")]))
+        flavors = list(set([tag.text.strip() for tag in soup.select("#flavors li")]))
+        effects = list(set([tag.text.strip() for tag in soup.select("#positive-effects li")]))
+        benefits = list(set([tag.text.strip() for tag in soup.select("#helps-with-section li")]))
+        reviews = clean_text(soup.find(id="collapse_reviews").text.strip()) if soup.find(id="collapse_reviews") else ""
 
         return {
             "name": name,
@@ -88,42 +94,51 @@ def scrape_allbud(url):
         print(f"AllBud scraping error: {e}")
         return None
 
-def generate_ai_description(leafly_desc, allbud_desc, reviews):
-    """Generates a refined strain description using OpenAI GPT-4o, handling quota errors gracefully."""
-    openai.api_key = os.getenv("OPENAI_API_KEY")  # Load API key
-
-    prompt = f"""
-    Combine the following strain descriptions and reviews into a single, refined description that is engaging and informative.
-    Avoid any medical claims, health benefits, or specific effects. Focus on its background, lineage, aroma, and taste.
-
-    **Leafly Description:**
-    {leafly_desc}
-
-    **AllBud Description:**
-    {allbud_desc}
-
-    **User Reviews:**
-    {reviews}
-
-    The final description should summarize key details while making it engaging, without including medical claims.
-    """
+def summarize_reviews(reviews):
+    """Uses OpenAI to generate a short summary of user-reported reviews."""
+    if not reviews:
+        return "No user reviews available."
 
     try:
         response = openai.chat.completions.create(
-            model="gpt-4o",  # Use GPT-4o for better cost and speed
-            messages=[{"role": "system", "content": "You are an expert cannabis content writer."},
-                      {"role": "user", "content": prompt}],
-            max_tokens=200  # Adjusted token count to reduce cost
+            model="gpt-4o",
+            messages=[{"role": "system", "content": "Summarize user reviews into a concise statement without medical claims."},
+                      {"role": "user", "content": f"Summarize these reviews in one paragraph: {reviews}"}]
         )
         return response.choices[0].message.content.strip()
-    
-    except openai.RateLimitError:
-        print("⚠️ OpenAI quota exceeded! Returning a fallback description.")
-        return "AI-generated description unavailable due to quota limits. This strain offers a balanced experience with unique flavors and aromas."
+    except openai.OpenAIError as e:
+        print(f"OpenAI API Error: {e}")
+        return "User reviews could not be summarized at this time."
 
-    except Exception as e:
-        print(f"⚠️ OpenAI API error: {e}")
-        return "Unable to generate description at this time. Please try again later."
+def generate_ai_description(leafly_desc, allbud_desc, reviews):
+    """Uses OpenAI to generate a refined description, avoiding medical claims and including user insights."""
+    try:
+        prompt = f"""
+        Combine the following strain descriptions and user reviews into a single, engaging summary.
+        Do not include any medical claims or health benefits.
+
+        **Leafly Description:**
+        {leafly_desc}
+
+        **AllBud Description:**
+        {allbud_desc}
+
+        **User Reviews Summary:**
+        {reviews}
+
+        The final description should summarize key details while making it more informative.
+        """
+
+        response = openai.chat.completions.create(
+            model="gpt-4o",
+            messages=[{"role": "system", "content": "You are an expert cannabis content writer."},
+                      {"role": "user", "content": prompt}]
+        )
+
+        return response.choices[0].message.content.strip()
+    except openai.OpenAIError as e:
+        print(f"OpenAI API Error: {e}")
+        return "Generated AI description here."
 
 @app.route('/fetch_strain', methods=['GET'])
 def fetch_strain():
@@ -138,26 +153,19 @@ def fetch_strain():
     leafly_data = scrape_leafly(leafly_url)
     allbud_data = scrape_allbud(allbud_url)
 
-    # Merge Data, ensuring all attributes from both sources are included
+    # Merge Data
     final_data = {
         "name": strain_name,
-        "strain_subname": leafly_data["name"] if leafly_data else allbud_data["name"] if allbud_data else strain_name,
-        "thc_content": leafly_data["thc_content"] if leafly_data else allbud_data["thc_content"] if allbud_data else None,
+        "strain_subname": leafly_data["name"] if leafly_data else allbud_data["name"],
+        "thc_content": leafly_data["thc_content"] if leafly_data else allbud_data["thc_content"],
         "cbd_content": leafly_data["cbd_content"] if leafly_data else "1%",
         "aromas": list(set((leafly_data["aromas"] if leafly_data else []) + (allbud_data["aromas"] if allbud_data else []))),
         "flavors": list(set((leafly_data["flavors"] if leafly_data else []) + (allbud_data["flavors"] if allbud_data else []))),
         "effects": list(set((leafly_data["effects"] if leafly_data else []) + (allbud_data["effects"] if allbud_data else []))),
-        "benefits": list(set((leafly_data["benefits"] if leafly_data else []) + (allbud_data["benefits"] if allbud_data else []))),
         "terpenes": leafly_data["terpenes"] if leafly_data else [],
-        "reviews": leafly_data["reviews"] if leafly_data else allbud_data["reviews"] if allbud_data else ""
+        "description": generate_ai_description(leafly_data["description"], allbud_data["description"], summarize_reviews(leafly_data["reviews"] + allbud_data["reviews"])),
+        "user_reported_reviews": summarize_reviews(leafly_data["reviews"] + allbud_data["reviews"])
     }
-
-    # Generate AI description
-    final_data["description"] = generate_ai_description(
-        leafly_data["description"] if leafly_data else "",
-        allbud_data["description"] if allbud_data else "",
-        final_data["reviews"]
-    )
 
     return jsonify(final_data)
 
