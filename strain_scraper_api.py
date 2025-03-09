@@ -30,6 +30,11 @@ def clean_text(text):
     text = re.sub(r'\bLoading\b|\bwrite a review\b|\bhelpfulreport\b|\bread full review\b|\bRead all reviews\b', '', text)
     return text.strip()
 
+def extract_list(soup, selector):
+    """Extracts a list of text items from a given CSS selector and removes duplicates."""
+    items = [tag.text.strip() for tag in soup.select(selector)] if soup.select(selector) else []
+    return list(set(items))  # Remove duplicates
+
 def scrape_leafly(url):
     """Scrapes Leafly strain data using known IDs and attributes."""
     soup = fetch_html(url)
@@ -41,11 +46,11 @@ def scrape_leafly(url):
         description = clean_text(soup.find(attrs={"data-testid": "strain-description-container"}).text.strip()) if soup.find(attrs={"data-testid": "strain-description-container"}) else "No description available"
         thc_content = soup.find(attrs={"data-testid": "THC"}).text.strip().replace("%", "") if soup.find(attrs={"data-testid": "THC"}) else None
         cbd_content = soup.find(attrs={"data-testid": "CBD"}).text.strip().replace("%", "") if soup.find(attrs={"data-testid": "CBD"}) else None
-        aromas = list(set([tag.text.strip() for tag in soup.select("#strain-aromas-section li")]))
-        flavors = list(set([tag.text.strip() for tag in soup.select("#strain-flavors-section li")]))
-        effects = list(set([tag.text.strip() for tag in soup.select("#strain-sensations-section li")]))
-        terpenes = list(set([tag.text.strip() for tag in soup.select("#strain-terpenes-section li")]))
-        benefits = list(set([tag.text.strip() for tag in soup.select("#helps-with-section li")]))
+        aromas = extract_list(soup, "#strain-aromas-section li")
+        flavors = extract_list(soup, "#strain-flavors-section li")
+        effects = extract_list(soup, "#strain-sensations-section li")
+        terpenes = extract_list(soup, "#strain-terpenes-section li")
+        benefits = extract_list(soup, "#helps-with-section li")
         reviews = clean_text(soup.find(id="strain-reviews-section").text.strip()) if soup.find(id="strain-reviews-section") else ""
 
         return {
@@ -74,10 +79,10 @@ def scrape_allbud(url):
         name = soup.find("h1").text.strip() if soup.find("h1") else "Unknown"
         description = clean_text(soup.find(class_="panel-body well description").text.strip()) if soup.find(class_="panel-body well description") else "No description available"
         thc_content = soup.find(class_="percentage").text.strip().replace("%", "") if soup.find(class_="percentage") else None
-        aromas = list(set([tag.text.strip() for tag in soup.select("#aromas li")]))
-        flavors = list(set([tag.text.strip() for tag in soup.select("#flavors li")]))
-        effects = list(set([tag.text.strip() for tag in soup.select("#positive-effects li")]))
-        benefits = list(set([tag.text.strip() for tag in soup.select("#helps-with-section li")]))
+        aromas = extract_list(soup, "#aromas li")
+        flavors = extract_list(soup, "#flavors li")
+        effects = extract_list(soup, "#positive-effects li")
+        benefits = extract_list(soup, "#helps-with-section li")
         reviews = clean_text(soup.find(id="collapse_reviews").text.strip()) if soup.find(id="collapse_reviews") else ""
 
         return {
@@ -102,7 +107,7 @@ def summarize_reviews(reviews):
     try:
         response = openai.chat.completions.create(
             model="gpt-4o",
-            messages=[{"role": "system", "content": "Summarize user reviews into a concise statement without medical claims."},
+            messages=[{"role": "system", "content": "Summarize user reviews into a concise statement without medical claims and effects."},
                       {"role": "user", "content": f"Summarize these reviews in one paragraph: {reviews}"}]
         )
         return response.choices[0].message.content.strip()
