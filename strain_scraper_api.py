@@ -10,24 +10,24 @@ CORS(app, resources={r"/*": {"origins": ["https://hempesv2.staging.tempurl.host"
 # Load API Key for OpenAI
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
-
 def get_strain_data_from_ai(strain_name):
     """Uses OpenAI Browsing to find and structure strain data."""
     try:
         prompt = f"""
-        Find accurate and up-to-date strain information for '{strain_name}'. Prioritize data from sources like Leafly and AllBud, 
-        but if unavailable, use another reputable source or your internal knowledge. Extract the following:
+        You are an expert cannabis researcher. Retrieve detailed strain information for '{strain_name}'. 
+        Prioritize Leafly and AllBud, but use other reputable sources if needed. Extract and structure the data as JSON.
 
-        - A clean, well-formatted **description** (avoiding medical claims).
-        - **Aromas** (if available).
-        - **Flavors** (if available).
-        - **Terpenes** (if available).
-        - **THC Content** (if available).
-        - **CBD Content** (if available, default to 1% if missing).
-        - **Strain Subname** (if known, e.g., "aka Apple Fritters").
-        - **User-reported review summary** (summarize themes, avoid medical claims).
-        
-        Return the response in **valid JSON format**, structured like this:
+        Required fields:
+        - **Description** (Engaging but no medical claims)
+        - **Aromas** (List of aromas)
+        - **Flavors** (List of flavors)
+        - **Terpenes** (List of terpenes)
+        - **THC Content** (Exact percentage if found)
+        - **CBD Content** (Exact percentage if found, default to 1% if missing)
+        - **Strain Subname** (e.g., "aka Apple Fritters")
+        - **User-Reported Reviews** (Summarized user feedback)
+
+        Output response as **valid JSON ONLY** with this format:
         {{
             "description": "...",
             "aromas": ["..."],
@@ -38,32 +38,37 @@ def get_strain_data_from_ai(strain_name):
             "strain_subname": "...",
             "user_reported_reviews": "..."
         }}
+        Ensure there is no additional text, only JSON.
         """
 
         response = openai.ChatCompletion.create(
             model="gpt-4o",
-            messages=[{"role": "system", "content": "You are an expert cannabis researcher."},
-                      {"role": "user", "content": prompt}],
+            messages=[{"role": "user", "content": prompt}],
             temperature=0.7
         )
 
         # Ensure response is valid JSON
-        processed_data = json.loads(response['choices'][0]['message']['content'].strip())
+        response_text = response['choices'][0]['message']['content'].strip()
 
-        return processed_data
+        # Debugging - Log response from OpenAI
+        print(f"AI Response: {response_text}")
+
+        # Parse JSON
+        strain_data = json.loads(response_text)
+
+        return strain_data
+
+    except json.JSONDecodeError as e:
+        print(f"JSON Decode Error: {e}")
+        return {"error": "Invalid JSON response from OpenAI"}
+
+    except openai.error.OpenAIError as e:
+        print(f"OpenAI API Error: {e}")
+        return {"error": "Issue with OpenAI API"}
 
     except Exception as e:
-        print(f"AI Processing Error: {e}")
-        return {
-            "description": "AI processing failed.",
-            "aromas": [],
-            "flavors": [],
-            "terpenes": [],
-            "thc_content": "Unknown",
-            "cbd_content": "1%",
-            "strain_subname": "Unknown",
-            "user_reported_reviews": "No summary available."
-        }
+        print(f"Unexpected Error: {e}")
+        return {"error": "AI processing failed."}
 
 
 @app.route('/fetch_strain', methods=['GET'])
