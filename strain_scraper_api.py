@@ -29,18 +29,22 @@ def ask_openai(prompt):
 def get_strain_data_from_ai(strain_name):
     """Fetches structured strain data from OpenAI using multiple queries for JSON formatting accuracy."""
 
+    sources = []
+
     # **1️⃣ Get Name & Alternative Name**
     name_prompt = f"Find strain '{strain_name}' on Leafly or AllBud. If it exists, return only:\n\nName: [Strain Name]\nAlternative Name: [Other names or blank]"
     name_response = ask_openai(name_prompt)
-    
+
     if name_response:
         name_lines = name_response.split("\n")
         name = name_lines[0].replace("Name:", "").strip() if len(name_lines) > 0 else strain_name
-        alternative_name = name_lines[1].replace("Alternative Name:", "").strip() if len(name_lines) > 1 else ""
+        alternative_name = name_lines[1].replace("Alternative Name:", "").strip() if len(name_lines) > 1 else "Blank"
+        sources.append("Leafly or AllBud")
     else:
-        name, alternative_name = strain_name, ""
+        name, alternative_name = strain_name, "Blank"
+        sources.append("OpenAI Knowledge")
 
-    # **2️⃣ Get THC & CBD Content (Fix Applied)**
+    # **2️⃣ Get THC & CBD Content**
     thc_cbd_prompt = f"Find strain '{strain_name}' and return just THC and CBD percentages. Format:\nTHC: [number]\nCBD: [number]"
     thc_cbd_response = ask_openai(thc_cbd_prompt)
 
@@ -58,16 +62,20 @@ def get_strain_data_from_ai(strain_name):
                     cbd_content = float(line.split(":")[1].strip())
                 except ValueError:
                     cbd_content = 0.0
+        sources.append("Leafly or AllBud")
+    else:
+        sources.append("OpenAI Knowledge")
 
-    # **3️⃣ Get Aromas, Flavors, Terpenes, Effects**
-    attributes_prompt = f"List the characteristics of strain '{strain_name}' as separate comma-separated values:\nAromas: [List]\nFlavors: [List]\nTerpenes: [List]\nEffects: [List]"
+    # **3️⃣ Get Aromas, Flavors, Terpenes, Effects, and Benefits**
+    attributes_prompt = f"List the characteristics of strain '{strain_name}' as separate comma-separated values:\nAromas: [List]\nFlavors: [List]\nTerpenes: [List]\nEffects: [List]\nBenefits: [List]"
     attributes_response = ask_openai(attributes_prompt)
 
     attributes = {
         "aromas": [],
         "flavors": [],
         "terpenes": [],
-        "effects": []
+        "effects": [],
+        "benefits": []
     }
 
     if attributes_response:
@@ -76,6 +84,9 @@ def get_strain_data_from_ai(strain_name):
             values = line.split(":")[1].strip().split(", ") if ":" in line else []
             if key in attributes:
                 attributes[key] = values
+        sources.append("Leafly or AllBud")
+    else:
+        sources.append("OpenAI Knowledge")
 
     # **4️⃣ Get Description**
     description_prompt = f"Write a **concise**, engaging, and **non-medical** description for '{strain_name}'. No medical claims."
@@ -95,8 +106,10 @@ def get_strain_data_from_ai(strain_name):
         "flavors": attributes.get("flavors", []),
         "terpenes": attributes.get("terpenes", []),
         "effects": attributes.get("effects", []),
+        "benefits": attributes.get("benefits", []),
         "description": description,
-        "user_reported_reviews": user_reviews
+        "user_reported_reviews": user_reviews,
+        "sources": list(set(sources))  # Ensure unique sources
     }
 
     return strain_data
