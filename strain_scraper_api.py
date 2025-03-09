@@ -7,27 +7,17 @@ import json
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": ["https://hempesv2.staging.tempurl.host"]}})
 
-# Load API Key for OpenAI
+# Load OpenAI API Key
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
 def get_strain_data_from_ai(strain_name):
-    """Uses OpenAI Browsing to find and structure strain data."""
+    """Fetch strain details from OpenAI using browsing capabilities."""
     try:
         prompt = f"""
-        You are an expert cannabis researcher. Retrieve detailed strain information for '{strain_name}'. 
-        Prioritize Leafly and AllBud, but use other reputable sources if needed. Extract and structure the data as JSON.
+        You are a cannabis expert. Gather detailed strain information for '{strain_name}' from Leafly, AllBud, or other reputable sources.
+        If sources are unavailable, use your own knowledge.
 
-        Required fields:
-        - **Description** (Engaging but no medical claims)
-        - **Aromas** (List of aromas)
-        - **Flavors** (List of flavors)
-        - **Terpenes** (List of terpenes)
-        - **THC Content** (Exact percentage if found)
-        - **CBD Content** (Exact percentage if found, default to 1% if missing)
-        - **Strain Subname** (e.g., "aka Apple Fritters")
-        - **User-Reported Reviews** (Summarized user feedback)
-
-        Output response as **valid JSON ONLY** with this format:
+        Extract and structure the data in **JSON format** with these fields:
         {{
             "description": "...",
             "aromas": ["..."],
@@ -38,31 +28,28 @@ def get_strain_data_from_ai(strain_name):
             "strain_subname": "...",
             "user_reported_reviews": "..."
         }}
-        Ensure there is no additional text, only JSON.
+        Ensure **NO extra text**, just JSON.
         """
 
-        response = openai.ChatCompletion.create(
+        response = openai.client.chat.completions.create(
             model="gpt-4o",
             messages=[{"role": "user", "content": prompt}],
             temperature=0.7
         )
 
-        # Ensure response is valid JSON
-        response_text = response['choices'][0]['message']['content'].strip()
+        # Ensure AI returns JSON only
+        response_text = response.choices[0].message.content.strip()
+        print(f"AI Response: {response_text}")  # Debugging output
 
-        # Debugging - Log response from OpenAI
-        print(f"AI Response: {response_text}")
-
-        # Parse JSON
+        # Convert response to JSON
         strain_data = json.loads(response_text)
-
         return strain_data
 
     except json.JSONDecodeError as e:
         print(f"JSON Decode Error: {e}")
-        return {"error": "Invalid JSON response from OpenAI"}
+        return {"error": "Invalid JSON response from AI"}
 
-    except openai.error.OpenAIError as e:
+    except openai.OpenAIError as e:
         print(f"OpenAI API Error: {e}")
         return {"error": "Issue with OpenAI API"}
 
@@ -78,13 +65,13 @@ def fetch_strain():
     if not strain_name:
         return jsonify({'error': 'Strain name is required'}), 400
 
-    # Get AI-Generated Data from OpenAI's Browsing and Knowledge Base
+    # Fetch AI-Generated Data
     strain_data = get_strain_data_from_ai(strain_name)
 
     # Final Response
     final_data = {
         "name": strain_name,
-        **strain_data  # Merges all AI-generated fields
+        **strain_data  # Merges AI-generated fields
     }
 
     return jsonify(final_data)
