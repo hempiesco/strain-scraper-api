@@ -25,14 +25,14 @@ def ask_openai(prompt):
     except Exception as e:
         print(f"Error querying OpenAI: {e}")
         return None
-
+        
 def get_strain_data_from_ai(strain_name):
-    """Fetches structured strain data from OpenAI using multiple queries for JSON formatting accuracy."""
+    """Fetches structured strain data from OpenAI while incorporating Leafly and AllBud sources."""
 
     sources = []
 
-    # **1️⃣ Get Name & Alternative Name**
-    name_prompt = f"Find strain '{strain_name}' on Leafly or AllBud. If it exists, return only:\n\nName: [Strain Name]\nAlternative Name: [Other names or blank]"
+    # **1️⃣ Fetch Name & Alternative Name From Leafly/AllBud (if available)**
+    name_prompt = f"Find strain '{strain_name}' on Leafly or AllBud. If it exists, return ONLY this format:\n\nName: [Strain Name]\nAlternative Name: [Alternative name or blank]"
     name_response = ask_openai(name_prompt)
 
     if name_response:
@@ -45,10 +45,10 @@ def get_strain_data_from_ai(strain_name):
         sources.append("OpenAI Knowledge")
 
     # **2️⃣ Get THC & CBD Content**
-    thc_cbd_prompt = f"Find strain '{strain_name}' and return just THC and CBD percentages. Format:\nTHC: [number]\nCBD: [number]"
+    thc_cbd_prompt = f"Find strain '{strain_name}' and return just THC and CBD percentages in this format:\nTHC: [number]\nCBD: [number]"
     thc_cbd_response = ask_openai(thc_cbd_prompt)
 
-    thc_content, cbd_content = 0.0, 0.0  # Default values
+    thc_content, cbd_content = 0.0, 0.0
 
     if thc_cbd_response:
         for line in thc_cbd_response.split("\n"):
@@ -66,8 +66,16 @@ def get_strain_data_from_ai(strain_name):
     else:
         sources.append("OpenAI Knowledge")
 
-    # **3️⃣ Get Aromas, Flavors, Terpenes, Effects, and Benefits**
-    attributes_prompt = f"List the characteristics of strain '{strain_name}' as separate comma-separated values:\nAromas: [List]\nFlavors: [List]\nTerpenes: [List]\nEffects: [List]\nBenefits: [List]"
+    # **3️⃣ Fetch Aromas, Flavors, Terpenes, Effects, and Benefits**
+    attributes_prompt = f"""
+    For the strain '{strain_name}', return these attributes formatted like this:
+    Aromas: [comma-separated list]
+    Flavors: [comma-separated list]
+    Terpenes: [comma-separated list]
+    Effects: [comma-separated list]
+    Benefits: [comma-separated list]
+    Expand using Leafly, AllBud, and your knowledge.
+    """
     attributes_response = ask_openai(attributes_prompt)
 
     attributes = {
@@ -88,12 +96,17 @@ def get_strain_data_from_ai(strain_name):
     else:
         sources.append("OpenAI Knowledge")
 
-    # **4️⃣ Get Description**
-    description_prompt = f"Write a **concise**, engaging, and **non-medical** description for '{strain_name}'. No medical claims."
+    # **4️⃣ Generate a High-Quality, Non-Medical Description**
+    description_prompt = f"""
+    Generate a **concise, engaging, and FDA-compliant** description of the strain '{strain_name}'.
+    - Use data from Leafly, AllBud, and your knowledge.
+    - Avoid medical claims but highlight flavor, aroma, and general experience.
+    - Keep it informative but **not too technical**.
+    """
     description = ask_openai(description_prompt) or "No description available."
 
-    # **5️⃣ Get User-Reported Reviews Summary**
-    reviews_prompt = f"Summarize **only user reviews** for '{strain_name}' in one paragraph without medical claims."
+    # **5️⃣ Generate a User-Reported Review Summary**
+    reviews_prompt = f"Summarize **only user reviews** for '{strain_name}' based on Leafly & AllBud. Keep it short and non-medical."
     user_reviews = ask_openai(reviews_prompt) or "No user reviews available."
 
     # **6️⃣ Build JSON Response**
@@ -109,7 +122,7 @@ def get_strain_data_from_ai(strain_name):
         "benefits": attributes.get("benefits", []),
         "description": description,
         "user_reported_reviews": user_reviews,
-        "sources": list(set(sources))  # Ensure unique sources
+        "sources": list(set(sources))  # Ensures we don't list the same source twice
     }
 
     return strain_data
