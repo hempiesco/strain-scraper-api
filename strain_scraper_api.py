@@ -11,40 +11,51 @@ CORS(app, resources={r"/*": {"origins": ["https://hempesv2.staging.tempurl.host"
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
 def get_strain_data_from_ai(strain_name):
-    """Fetch strain data using OpenAI with improved error handling"""
+    """Fetch strain data using OpenAI with enforced JSON response format"""
     prompt = f"""
-    Gather the most accurate and up-to-date information about the cannabis strain "{strain_name}". 
-    Include:
-    - Description (No medical claims)
-    - THC Content
-    - CBD Content (Default to 1% if unknown)
-    - Aromas
-    - Flavors
-    - Terpenes
-    - Effects
-    - User-Reported Reviews Summary
+    Provide a JSON response with detailed information about the cannabis strain "{strain_name}".
+    
+    Your response must be in valid JSON format with the following structure:
+    
+    {{
+      "name": "{strain_name}",
+      "strain_subname": "Alternative name if available, otherwise 'Unknown'",
+      "thc_content": "Percentage of THC (e.g., '24%' or 'Unknown')",
+      "cbd_content": "Percentage of CBD (e.g., '1%' if unknown)",
+      "aromas": ["List of aromas like 'Earthy', 'Citrus'"],
+      "flavors": ["List of flavors like 'Sweet', 'Berry'"],
+      "terpenes": ["List of terpenes like 'Caryophyllene', 'Limonene'"],
+      "effects": ["List of effects like 'Relaxed', 'Happy'"],
+      "user_reported_reviews": "Summarized user reviews in 2-3 sentences."
+    }}
 
-    Sources: First check Leafly and AllBud. If no data is found, summarize from OpenAI knowledge.
-    Provide a structured JSON response.
+    **Rules:**
+    - Return only valid JSON, no extra text.
+    - Do not include medical claims or dosage recommendations.
+    - If data is unavailable, set it to `"Unknown"` or `[]` for lists.
     """
 
     try:
         response = openai.chat.completions.create(
             model="gpt-4o",
-            messages=[{"role": "system", "content": "You are a cannabis expert providing accurate strain information."},
+            messages=[{"role": "system", "content": "You are a cannabis expert providing structured strain data."},
                       {"role": "user", "content": prompt}],
-            temperature=0.7
+            temperature=0  # Lower temperature to enforce structured output
         )
         
         raw_ai_response = response.choices[0].message.content.strip()
         print(f"🔍 AI RAW RESPONSE: {raw_ai_response}")  # Debugging output
 
-        # Try to parse as JSON
-        strain_data = json.loads(raw_ai_response)
-        return strain_data
+        # Ensure OpenAI returns valid JSON
+        if raw_ai_response.startswith("{") and raw_ai_response.endswith("}"):
+            strain_data = json.loads(raw_ai_response)
+            return strain_data
+        else:
+            print("❌ ERROR: OpenAI returned non-JSON formatted data.")
+            return {"error": "AI returned malformed data."}
 
     except json.JSONDecodeError:
-        print("❌ ERROR: OpenAI returned invalid JSON format.")
+        print("❌ ERROR: JSON Decoding Failed.")
         return {"error": "AI returned malformed data."}
     
     except openai.OpenAIError as e:
