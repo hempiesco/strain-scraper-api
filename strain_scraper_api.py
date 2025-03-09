@@ -9,11 +9,12 @@ import json
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": ["https://hempesv2.staging.tempurl.host"]}})
 
-# OpenAI API Key
+# Load API Key for OpenAI
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
+
 def fetch_html(url):
-    """Fetches the HTML content of a URL."""
+    """Fetches and parses HTML content from a URL."""
     try:
         headers = {'User-Agent': 'Mozilla/5.0'}
         response = requests.get(url, headers=headers)
@@ -23,13 +24,6 @@ def fetch_html(url):
         print(f"Error fetching {url}: {e}")
     return None
 
-def extract_text(soup, selector):
-    """Extracts text content from a given selector."""
-    try:
-        return " ".join([tag.text.strip() for tag in soup.select(selector) if tag.text.strip()])
-    except Exception as e:
-        print(f"Error extracting {selector}: {e}")
-        return ""
 
 def scrape_leafly(url):
     """Scrapes Leafly strain data."""
@@ -38,20 +32,33 @@ def scrape_leafly(url):
         return None
 
     try:
+        name = soup.find(class_="text-secondary").text.strip() if soup.find(class_="text-secondary") else "Unknown"
+        description = soup.find(attrs={"data-testid": "strain-description-container"}).text.strip() if soup.find(attrs={"data-testid": "strain-description-container"}) else "No description available"
+        thc_content = soup.find(attrs={"data-testid": "THC"}).text.strip().replace("%", "") if soup.find(attrs={"data-testid": "THC"}) else None
+        cbd_content = soup.find(attrs={"data-testid": "CBD"}).text.strip().replace("%", "") if soup.find(attrs={"data-testid": "CBD"}) else None
+        
+        # Extract Aromas, Flavors, Terpenes
+        aromas = [tag.text.strip() for tag in soup.select("#strain-aromas-section a")]
+        flavors = [tag.text.strip() for tag in soup.select("#strain-flavors-section a")]
+        terpenes = [tag.text.strip() for tag in soup.select("#strain-terpenes-section a")]
+        
+        # Extract Reviews
+        reviews = soup.find(id="strain-reviews-section").text.strip() if soup.find(id="strain-reviews-section") else ""
+
         return {
-            "name": soup.find(class_="text-secondary").text.strip() if soup.find(class_="text-secondary") else "Unknown",
-            "description": extract_text(soup, '[data-testid="strain-description-container"]'),
-            "thc_content": extract_text(soup, '[data-testid="THC"]').replace("%", ""),
-            "cbd_content": extract_text(soup, '[data-testid="CBD"]').replace("%", ""),
-            "aromas_raw": extract_text(soup, "#strain-aromas-section"),
-            "flavors_raw": extract_text(soup, "#strain-flavors-section"),
-            "terpenes_raw": extract_text(soup, "#strain-terpenes-section"),
-            "effects_raw": extract_text(soup, "#strain-sensations-section"),
-            "reviews_raw": extract_text(soup, "#strain-reviews-section")
+            "name": name,
+            "description": description,
+            "thc_content": thc_content,
+            "cbd_content": cbd_content,
+            "aromas": aromas,
+            "flavors": flavors,
+            "terpenes": terpenes,
+            "reviews": reviews
         }
     except Exception as e:
         print(f"Leafly scraping error: {e}")
         return None
+
 
 def scrape_allbud(url):
     """Scrapes AllBud strain data."""
@@ -60,73 +67,77 @@ def scrape_allbud(url):
         return None
 
     try:
+        name = soup.find("h1").text.strip() if soup.find("h1") else "Unknown"
+        description = soup.find(class_="panel-body well description").text.strip() if soup.find(class_="panel-body well description") else "No description available"
+        thc_content = soup.find(class_="percentage").text.strip().replace("%", "") if soup.find(class_="percentage") else None
+        
+        # Extract Aromas, Flavors, Effects
+        aromas = [tag.text.strip() for tag in soup.select("#aromas a")]
+        flavors = [tag.text.strip() for tag in soup.select("#flavors a")]
+        effects = [tag.text.strip() for tag in soup.select("#positive-effects a")]
+        
+        # Extract Reviews
+        reviews = soup.find(id="collapse_reviews").text.strip() if soup.find(id="collapse_reviews") else ""
+
         return {
-            "name": soup.find("h1").text.strip() if soup.find("h1") else "Unknown",
-            "description": extract_text(soup, ".panel-body.well.description"),
-            "thc_content": extract_text(soup, ".percentage").replace("%", ""),
-            "aromas_raw": extract_text(soup, "#aromas"),
-            "flavors_raw": extract_text(soup, "#flavors"),
-            "effects_raw": extract_text(soup, "#positive-effects"),
-            "reviews_raw": extract_text(soup, "#collapse_reviews")
+            "name": name,
+            "description": description,
+            "thc_content": thc_content,
+            "aromas": aromas,
+            "flavors": flavors,
+            "effects": effects,
+            "reviews": reviews
         }
     except Exception as e:
         print(f"AllBud scraping error: {e}")
         return None
 
+
 def process_with_ai(leafly_data, allbud_data):
-    """Uses AI to process and categorize scraped data properly."""
-    prompt = f"""
-    You are a data processor that extracts structured cannabis strain information.
-    Take the raw data below and extract the following fields in a structured format:
-    
-    - **Aromas**: List of distinctive aromas.
-    - **Flavors**: List of distinctive flavors.
-    - **Terpenes**: Extract only the terpene names.
-    - **Effects**: List of reported effects.
-    - **Summarized User Reviews**: A short summary of what users reported about the strain.
-
-    **Raw Data:**
-    Leafly:
-    - Aromas: {leafly_data.get("aromas_raw", "")}
-    - Flavors: {leafly_data.get("flavors_raw", "")}
-    - Terpenes: {leafly_data.get("terpenes_raw", "")}
-    - Effects: {leafly_data.get("effects_raw", "")}
-    - Reviews: {leafly_data.get("reviews_raw", "")}
-
-    AllBud:
-    - Aromas: {allbud_data.get("aromas_raw", "")}
-    - Flavors: {allbud_data.get("flavors_raw", "")}
-    - Effects: {allbud_data.get("effects_raw", "")}
-    - Reviews: {allbud_data.get("reviews_raw", "")}
-
-    Please return the response in **plain JSON format**, with no markdown or code blocks.
-
-    Example Response:
-    {{
-        "aromas": ["Apple", "Sweet", "Earthy"],
-        "flavors": ["Vanilla", "Fruity"],
-        "terpenes": ["Caryophyllene", "Limonene"],
-        "effects": ["Relaxing", "Happy"],
-        "user_reported_reviews": "Users describe Apple Fritter as a relaxing strain with a sweet apple pastry flavor."
-    }}
-    """
-
-    response = openai.chat.completions.create(
-        model="gpt-4o",
-        messages=[{"role": "system", "content": "You are a data extraction assistant."},
-                  {"role": "user", "content": prompt}]
-    )
-
+    """Uses OpenAI to process and categorize strain attributes."""
     try:
-        # Remove markdown artifacts & parse response safely
-        clean_response = response.choices[0].message.content.strip()
-        if clean_response.startswith("```json"):
-            clean_response = clean_response.replace("```json", "").replace("```", "").strip()
+        prompt = f"""
+        Extract relevant information from the given strain descriptions and reviews.
+        Ensure the final data includes: 
+        - A clean and formatted description (avoiding medical claims).
+        - Categorized attributes for aromas, flavors, and terpenes.
+        - A user-reported review summary.
+        
+        Leafly Data:
+        {json.dumps(leafly_data, indent=2)}
 
-        return json.loads(clean_response)  # Convert to dictionary
-    except json.JSONDecodeError as e:
-        print(f"Error parsing AI response: {e}")
-        return {"aromas": [], "flavors": [], "terpenes": [], "effects": [], "user_reported_reviews": "No review data available."}
+        AllBud Data:
+        {json.dumps(allbud_data, indent=2)}
+
+        Return the response in **valid JSON format**, structured like this:
+        {{
+            "description": "...",
+            "aromas": ["..."],
+            "flavors": ["..."],
+            "terpenes": ["..."],
+            "user_reported_reviews": "..."
+        }}
+        """
+
+        response = openai.ChatCompletion.create(
+            model="gpt-4o",
+            messages=[{"role": "system", "content": "You are an expert cannabis data processor."},
+                      {"role": "user", "content": prompt}]
+        )
+
+        # Ensure response is valid JSON
+        processed_data = json.loads(response['choices'][0]['message']['content'].strip())
+
+        return processed_data
+    except Exception as e:
+        print(f"AI Processing Error: {e}")
+        return {
+            "description": "AI processing failed.",
+            "aromas": [],
+            "flavors": [],
+            "terpenes": [],
+            "user_reported_reviews": "No summary available."
+        }
 
 
 @app.route('/fetch_strain', methods=['GET'])
@@ -138,24 +149,30 @@ def fetch_strain():
     if not strain_name:
         return jsonify({'error': 'Strain name is required'}), 400
 
-    # Scrape both sites
+    # Scrape Leafly & AllBud
     leafly_data = scrape_leafly(leafly_url)
     allbud_data = scrape_allbud(allbud_url)
 
-    # Merge and process raw data
-    processed_data = process_with_ai(leafly_data, allbud_data)
-
-    # Prepare final response
+    # Merge Data
     final_data = {
         "name": strain_name,
         "strain_subname": leafly_data["name"] if leafly_data else allbud_data["name"] if allbud_data else strain_name,
         "thc_content": leafly_data["thc_content"] if leafly_data else allbud_data["thc_content"] if allbud_data else None,
         "cbd_content": leafly_data["cbd_content"] if leafly_data else "1%",
-        "description": process_with_ai(leafly_data, allbud_data),  # AI-Generated Description
-        **eval(processed_data)  # Processed attributes from AI
+        "aromas": list(set((leafly_data["aromas"] if leafly_data else []) + (allbud_data["aromas"] if allbud_data else []))),
+        "flavors": list(set((leafly_data["flavors"] if leafly_data else []) + (allbud_data["flavors"] if allbud_data else []))),
+        "effects": list(set((leafly_data["effects"] if leafly_data else []) + (allbud_data["effects"] if allbud_data else []))),
+        "terpenes": list(set((leafly_data["terpenes"] if leafly_data else [])))
     }
 
+    # AI Processing
+    ai_data = process_with_ai(leafly_data, allbud_data)
+
+    # Merge AI Data into Final Output
+    final_data.update(ai_data)
+
     return jsonify(final_data)
+
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
