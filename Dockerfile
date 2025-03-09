@@ -15,4 +15,4 @@ COPY . .
 EXPOSE 5000
 
 # Use Gunicorn for production
-CMD ["gunicorn", "-w", "4", "-b", "0.0.0.0:$PORT", "strain_scraper_api:app"]
+CMD sh -c "gunicorn -w 4 -b 0.0.0.0:${PORT} strain_scraper_api:app"
