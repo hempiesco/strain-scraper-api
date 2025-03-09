@@ -22,18 +22,16 @@ def fetch_html(url):
         print(f"Error fetching {url}: {e}")
     return None
 
-def extract_list(soup, selector, attribute=None):
-    """Extracts a list of values from given selector."""
+def extract_list(soup, selector):
+    """Extracts a list of text values from given selector."""
     try:
-        if attribute:
-            return [tag[attribute].strip() for tag in soup.select(selector) if tag.has_attr(attribute)]
-        return [tag.text.strip() for tag in soup.select(selector) if tag.text.strip()]
+        return list(set([tag.text.strip() for tag in soup.select(selector) if tag.text.strip()]))
     except Exception as e:
         print(f"Error extracting data from {selector}: {e}")
         return []
 
 def scrape_leafly(url):
-    """Scrapes Leafly strain data using known IDs and attributes."""
+    """Scrapes Leafly strain data."""
     soup = fetch_html(url)
     if not soup:
         return None
@@ -44,11 +42,11 @@ def scrape_leafly(url):
             "description": soup.find(attrs={"data-testid": "strain-description-container"}).text.strip() if soup.find(attrs={"data-testid": "strain-description-container"}) else "No description available",
             "thc_content": soup.find(attrs={"data-testid": "THC"}).text.strip().replace("%", "") if soup.find(attrs={"data-testid": "THC"}) else None,
             "cbd_content": soup.find(attrs={"data-testid": "CBD"}).text.strip().replace("%", "") if soup.find(attrs={"data-testid": "CBD"}) else None,
-            "aromas": extract_list(soup, '[data-testid="icon-tile-link"] p'),  # ✅ FIXED: Extracts from 'p' inside 'data-testid'
-            "flavors": extract_list(soup, '[data-testid="icon-tile-link"] p'),  # ✅ FIXED
-            "effects": extract_list(soup, "#strain-sensations-section li"),
-            "terpenes": [tag.text.strip() for tag in soup.select('p strong') if "terpene" in soup.find("p").text.lower()],  # ✅ FIXED: Extracts from <p> with strong tags
-            "benefits": extract_list(soup, "#helps-with-section li"),
+            "aromas": extract_list(soup, '#strain-aromas-section p[data-testid="item-name"]'),  # ✅ FIXED
+            "flavors": extract_list(soup, '#strain-flavors-section p[data-testid="item-name"]'),  # ✅ FIXED
+            "effects": extract_list(soup, "#strain-sensations-section p[data-testid='item-name']"),  # ✅ FIXED
+            "terpenes": extract_list(soup, '#strain-terpenes-section p strong'),  # ✅ FIXED
+            "benefits": extract_list(soup, "#helps-with-section p[data-testid='item-name']"),  # ✅ FIXED
             "reviews": soup.find(id="strain-reviews-section").text.strip() if soup.find(id="strain-reviews-section") else ""
         }
     except Exception as e:
@@ -56,7 +54,7 @@ def scrape_leafly(url):
         return None
 
 def scrape_allbud(url):
-    """Scrapes AllBud strain data using known IDs and classes."""
+    """Scrapes AllBud strain data."""
     soup = fetch_html(url)
     if not soup:
         return None
@@ -66,9 +64,9 @@ def scrape_allbud(url):
             "name": soup.find("h1").text.strip() if soup.find("h1") else "Unknown",
             "description": soup.find(class_="panel-body well description").text.strip() if soup.find(class_="panel-body well description") else "No description available",
             "thc_content": soup.find(class_="percentage").text.strip().replace("%", "") if soup.find(class_="percentage") else None,
-            "aromas": extract_list(soup, ".tags-list a"),  # ✅ FIXED: Extracts Aromas
-            "flavors": extract_list(soup, "#flavors a"),  # ✅ FIXED: Extracts Flavors
-            "effects": extract_list(soup, "#positive-effects a"),  # ✅ FIXED: Extracts Effects
+            "aromas": extract_list(soup, ".tags-list a"),  # ✅ FIXED
+            "flavors": extract_list(soup, "#flavors a"),  # ✅ FIXED
+            "effects": extract_list(soup, "#positive-effects a"),  # ✅ FIXED
             "benefits": extract_list(soup, "#helps-with-section a"),
             "reviews": soup.find(id="collapse_reviews").text.strip() if soup.find(id="collapse_reviews") else ""
         }
