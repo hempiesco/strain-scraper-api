@@ -2,93 +2,153 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 import requests
 from bs4 import BeautifulSoup
-import logging
-
-# Set up logging for debugging
-logging.basicConfig(level=logging.DEBUG)
+import openai
 
 app = Flask(__name__)
+CORS(app, resources={r"/*": {"origins": ["https://hempesv2.staging.tempurl.host"]}})
 
-# Allow CORS for your WordPress domain
-CORS(app, resources={r"/*": {"origins": ["https://hempesv2.staging.tempurl.host", "https://your-main-wordpress-site.com"]}})
+import os
+import openai
 
-# Function to scrape Leafly
+# Load API key from environment variable
+openai.api_key = os.getenv("OPENAI_API_KEY")
+
+def fetch_html(url):
+    """Fetches the HTML content of a URL."""
+    try:
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        response = requests.get(url, headers=headers)
+        if response.status_code == 200:
+            return BeautifulSoup(response.text, 'html.parser')
+    except Exception as e:
+        print(f"Error fetching {url}: {e}")
+    return None
+
 def scrape_leafly(url):
-    try:
-        logging.debug(f"Scraping Leafly: {url}")
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36'
-        }
-        response = requests.get(url, headers=headers, timeout=10)
-        
-        if response.status_code != 200:
-            logging.error(f"Leafly request failed with status code: {response.status_code}")
-            return None
-        
-        soup = BeautifulSoup(response.text, 'html.parser')
-        name = soup.find('h1').text.strip() if soup.find('h1') else "Unknown"
-        description = soup.find('meta', {'name': 'description'})['content'] if soup.find('meta', {'name': 'description'}) else "No description available"
-        
-        logging.debug(f"Leafly Data: Name: {name}, Description: {description[:50]}")
-        return {'name': name, 'description': description}
-    
-    except Exception as e:
-        logging.error(f"Leafly scraping error: {str(e)}")
+    """Scrapes Leafly strain data using known IDs and attributes."""
+    soup = fetch_html(url)
+    if not soup:
         return None
 
-# Function to scrape AllBud
+    try:
+        name = soup.find(class_="text-secondary").text.strip() if soup.find(class_="text-secondary") else "Unknown"
+        description = soup.find(attrs={"data-testid": "strain-description-container"}).text.strip() if soup.find(attrs={"data-testid": "strain-description-container"}) else "No description available"
+        thc_content = soup.find(attrs={"data-testid": "THC"}).text.strip().replace("%", "") if soup.find(attrs={"data-testid": "THC"}) else None
+        cbd_content = soup.find(attrs={"data-testid": "CBD"}).text.strip().replace("%", "") if soup.find(attrs={"data-testid": "CBD"}) else None
+        aromas = [tag.text.strip() for tag in soup.select("#strain-aromas-section li")]
+        flavors = [tag.text.strip() for tag in soup.select("#strain-flavors-section li")]
+        effects = [tag.text.strip() for tag in soup.select("#strain-sensations-section li")]
+        terpenes = [tag.text.strip() for tag in soup.select("#strain-terpenes-section li")]
+        benefits = [tag.text.strip() for tag in soup.select("#helps-with-section li")]
+        reviews = soup.find(id="strain-reviews-section").text.strip() if soup.find(id="strain-reviews-section") else ""
+
+        return {
+            "name": name,
+            "description": description,
+            "thc_content": thc_content,
+            "cbd_content": cbd_content,
+            "aromas": aromas,
+            "flavors": flavors,
+            "effects": effects,
+            "terpenes": terpenes,
+            "benefits": benefits,
+            "reviews": reviews
+        }
+    except Exception as e:
+        print(f"Leafly scraping error: {e}")
+        return None
+
 def scrape_allbud(url):
-    try:
-        logging.debug(f"Scraping AllBud: {url}")
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36'
-        }
-        response = requests.get(url, headers=headers, timeout=10)
-        
-        if response.status_code != 200:
-            logging.error(f"AllBud request failed with status code: {response.status_code}")
-            return None
-        
-        soup = BeautifulSoup(response.text, 'html.parser')
-        name = soup.find('h1').text.strip() if soup.find('h1') else "Unknown"
-        description = soup.find('meta', {'name': 'description'})['content'] if soup.find('meta', {'name': 'description'}) else "No description available"
-        
-        logging.debug(f"AllBud Data: Name: {name}, Description: {description[:50]}")
-        return {'name': name, 'description': description}
-    
-    except Exception as e:
-        logging.error(f"AllBud scraping error: {str(e)}")
+    """Scrapes AllBud strain data using known IDs and classes."""
+    soup = fetch_html(url)
+    if not soup:
         return None
 
-# API Route to Fetch Strain Data
+    try:
+        name = soup.find("h1").text.strip() if soup.find("h1") else "Unknown"
+        description = soup.find(class_="panel-body well description").text.strip() if soup.find(class_="panel-body well description") else "No description available"
+        thc_content = soup.find(class_="percentage").text.strip().replace("%", "") if soup.find(class_="percentage") else None
+        aromas = [tag.text.strip() for tag in soup.select("#aromas li")]
+        flavors = [tag.text.strip() for tag in soup.select("#flavors li")]
+        effects = [tag.text.strip() for tag in soup.select("#positive-effects li")]
+        benefits = [tag.text.strip() for tag in soup.select("#helps-with-section li")]
+        reviews = soup.find(id="collapse_reviews").text.strip() if soup.find(id="collapse_reviews") else ""
+
+        return {
+            "name": name,
+            "description": description,
+            "thc_content": thc_content,
+            "aromas": aromas,
+            "flavors": flavors,
+            "effects": effects,
+            "benefits": benefits,
+            "reviews": reviews
+        }
+    except Exception as e:
+        print(f"AllBud scraping error: {e}")
+        return None
+
+def generate_ai_description(leafly_desc, allbud_desc, reviews):
+    """Uses OpenAI to generate a refined description, avoiding medical claims and effects that are not approved by the fda."""
+    prompt = f"""
+    Combine the following strain descriptions and reviews into a single, refined description that is engaging and informative. 
+    Avoid any medical claims or health benefits.
+
+    Leafly Description:
+    {leafly_desc}
+
+    AllBud Description:
+    {allbud_desc}
+
+    User Reviews:
+    {reviews}
+
+    The final description should summarize key details while making it more engaging.
+    """
+
+    response = openai.ChatCompletion.create(
+        model="gpt-4",
+        messages=[{"role": "system", "content": "You are an expert cannabis content writer."},
+                  {"role": "user", "content": prompt}]
+    )
+
+    return response['choices'][0]['message']['content'].strip()
+
 @app.route('/fetch_strain', methods=['GET'])
 def fetch_strain():
     strain_name = request.args.get('name')
-    leafly_url = request.args.get('leafly_url')
-    allbud_url = request.args.get('allbud_url')
+    leafly_url = f"https://www.leafly.com/strains/{'-'.join(strain_name.lower().split())}"
+    allbud_url = f"https://www.allbud.com/marijuana-strains/hybrid/{'-'.join(strain_name.lower().split())}"
 
     if not strain_name:
         return jsonify({'error': 'Strain name is required'}), 400
 
-    logging.info(f"Fetching strain: {strain_name}")
-    
-    strain_data = {'name': strain_name, 'description': "Generated AI description here."}
+    # Scrape Leafly & AllBud
+    leafly_data = scrape_leafly(leafly_url)
+    allbud_data = scrape_allbud(allbud_url)
 
-    if leafly_url:
-        logging.info(f"Fetching Leafly data for {strain_name}")
-        leafly_data = scrape_leafly(leafly_url)
-        if leafly_data:
-            strain_data.update(leafly_data)
+    # Merge Data, ensuring all attributes from both sources are included
+    final_data = {
+        "name": strain_name,
+        "strain_subname": leafly_data["name"] if leafly_data else allbud_data["name"] if allbud_data else strain_name,
+        "thc_content": leafly_data["thc_content"] if leafly_data else allbud_data["thc_content"] if allbud_data else None,
+        "cbd_content": leafly_data["cbd_content"] if leafly_data else "1%",
+        "aromas": list(set((leafly_data["aromas"] if leafly_data else []) + (allbud_data["aromas"] if allbud_data else []))),
+        "flavors": list(set((leafly_data["flavors"] if leafly_data else []) + (allbud_data["flavors"] if allbud_data else []))),
+        "effects": list(set((leafly_data["effects"] if leafly_data else []) + (allbud_data["effects"] if allbud_data else []))),
+        "benefits": list(set((leafly_data["benefits"] if leafly_data else []) + (allbud_data["benefits"] if allbud_data else []))),
+        "terpenes": leafly_data["terpenes"] if leafly_data else [],
+        "reviews": leafly_data["reviews"] if leafly_data else allbud_data["reviews"] if allbud_data else ""
+    }
 
-    if allbud_url:
-        logging.info(f"Fetching AllBud data for {strain_name}")
-        allbud_data = scrape_allbud(allbud_url)
-        if allbud_data:
-            strain_data.update(allbud_data)
+    # Generate AI description
+    final_data["description"] = generate_ai_description(
+        leafly_data["description"] if leafly_data else "",
+        allbud_data["description"] if allbud_data else "",
+        final_data["reviews"]
+    )
 
-    logging.info(f"Final strain data: {strain_data}")
-    return jsonify(strain_data)
+    return jsonify(final_data)
 
-# Run Flask with Gunicorn for Production
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
