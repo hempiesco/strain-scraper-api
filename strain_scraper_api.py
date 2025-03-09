@@ -5,6 +5,9 @@ from bs4 import BeautifulSoup
 
 app = Flask(__name__)
 
+# Allow requests from WordPress site
+CORS(app, resources={r"/*": {"origins": ["https://hempesv2.staging.tempurl.host", "https://your-main-wordpress-site.com"]}})
+
 # Function to scrape Leafly
 def scrape_leafly(url):
     try:
@@ -35,6 +38,7 @@ def scrape_allbud(url):
     except Exception as e:
         return None
 
+# Route to Fetch Strain Data
 @app.route('/fetch_strain', methods=['GET'])
 def fetch_strain():
     strain_name = request.args.get('name')
@@ -58,5 +62,6 @@ def fetch_strain():
 
     return jsonify(strain_data)
 
+# Run Flask with Gunicorn for Production
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
